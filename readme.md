@@ -7,12 +7,10 @@ Ein R-basiertes Telegram-Bot-Skript, das automatisch **Reminder für Auswärts- 
 ## 📝 Features
 
 - Scraping der offiziellen FC St. Pauli Ticket-Seiten (Heim- und Auswärtsspiele).  
-- Filtert automatisch Auswärtsspiele für den heutigen Tag oder Sonder-Heimspiele.  
-- Sendet Reminder nur, wenn **VVK-Datum und VVK-Uhrzeit** vorhanden sind.  
+- Filtert automatisch Auswärtsspiele für oder Sonder-Heimspiele.  
 - Automatische Versandzeit:
   - 1 Tag vorher
   - Am Spieltag um 14:00 Uhr
-- Auffällige Nachrichten mit Emojis.  
 - Flexibel: kann in **Cronjobs oder Task Scheduler** täglich ausgeführt werden.
 
 ---
