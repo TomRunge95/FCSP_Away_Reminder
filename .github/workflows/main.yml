@@ -23,7 +23,7 @@ jobs:
     # R-Pakete installieren
     - name: Install dependencies
       run: |
-        install.packages(c("dplyr", "lubridate", "httr", "rvest", "stringr"))
+        Rscript -e 'install.packages(c("dplyr", "lubridate", "httr", "rvest", "stringr"))'
 
     # Skript ausführen
     - name: Run Ticket Reminder
