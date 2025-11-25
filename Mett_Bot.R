@@ -2,6 +2,7 @@ library(rvest)
 library(dplyr)
 library(stringr)
 library(lubridate)
+library(httr)
 
 
 # URLs für Heim- und Auswärtsspiele
