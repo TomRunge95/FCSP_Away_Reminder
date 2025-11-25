@@ -1,0 +1,34 @@
+name: Ticket Reminder Bot
+
+# Cron-Schedule: z.B. jeden Tag um 08:00 und 14:00 Uhr UTC
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 Uhr UTC
+    - cron: '0 14 * * *'  # 14:00 Uhr UTC
+  workflow_dispatch:       # Manuelles Auslösen möglich
+
+jobs:
+  run-r-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Repository auschecken
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    # R Setup
+    - name: Set up R
+      uses: r-lib/actions/setup-r@v2
+
+    # R-Pakete installieren
+    - name: Install dependencies
+      run: |
+        install.packages(c("dplyr", "lubridate", "httr", "rvest", "stringr"))
+
+    # Skript ausführen
+    - name: Run Ticket Reminder
+      env:
+        bot_token: ${{ secrets.BOT_TOKEN }}   # in GitHub Secrets speichern
+        chat_id: ${{ secrets.CHAT_ID }}       # in GitHub Secrets speichern
+      run: |
+        Rscript Mett_Bot.R
