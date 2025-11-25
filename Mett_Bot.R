@@ -154,8 +154,7 @@ if(nrow(auswaerts_und_sonder_heim) > 0) {
     # 1. Einen Tag vorher
     reminder_vor <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed - 1 == heute
     # 2. Am Spieltag um 14 Uhr
-    reminder_tag <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed == heute 
-    # & hour(Sys.time()) == 14
+    reminder_tag <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed == heute  & hour(Sys.time()) == 14
     
     if(reminder_vor | reminder_tag) {
       nachricht <- paste0(
