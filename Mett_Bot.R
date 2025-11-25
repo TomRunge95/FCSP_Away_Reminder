@@ -3,6 +3,14 @@ library(dplyr)
 library(stringr)
 library(lubridate)
 
+
+# URLs für Heim- und Auswärtsspiele
+urls <- c(
+  heim = "https://www.fcstpauli.com/fu%C3%9Fball/tickets/heimspiele",
+  auswaerts = "https://www.fcstpauli.com/fu%C3%9Fball/tickets/auswaertsspiele"
+)
+
+
 scrape_spiele <- function(url, typ) {
   page <- read_html(url)
   
