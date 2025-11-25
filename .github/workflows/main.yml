@@ -12,23 +12,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Repository auschecken
-    - name: Checkout Repo
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup R environment
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.4.1'
 
-    # R Setup
-    - name: Set up R
-      uses: r-lib/actions/setup-r@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libxml2-dev libssl-dev
 
     # R-Pakete installieren
-    - name: Install dependencies
-      run: |
-        Rscript -e 'install.packages(c("dplyr", "lubridate", "httr", "rvest", "stringr"))'
+      - name: Install R package dependencies
+        run: |
+          Rscript -e 'install.packages(c("dplyr", "lubridate", "httr", "rvest", "stringr"))'
 
     # Skript ausführen
-    - name: Run Ticket Reminder
-      env:
-        bot_token: ${{ secrets.BOT_TOKEN }}   # in GitHub Secrets speichern
-        chat_id: ${{ secrets.CHAT_ID }}       # in GitHub Secrets speichern
-      run: |
-        Rscript Mett_Bot.R
+      - name: Run Ticket Reminder
+        env:
+          bot_token: ${{ secrets.BOT_TOKEN }}   # in GitHub Secrets speichern
+          chat_id: ${{ secrets.CHAT_ID }}       # in GitHub Secrets speichern
+        run: |
+          Rscript Mett_Bot.R
