@@ -4,6 +4,7 @@ library(stringr)
 library(lubridate)
 library(httr)
 
+Sys.setenv(TZ = "Europe/Berlin")
 
 # URLs für Heim- und Auswärtsspiele
 urls <- c(
@@ -154,9 +155,10 @@ if(nrow(auswaerts_und_sonder_heim) > 0) {
     # 1. Einen Tag vorher
     reminder_vor <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed - 1 == heute
     # 2. Am Spieltag um 14 Uhr
-    reminder_tag <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed == heute  & hour(Sys.time()) == 14
-    
-    if(reminder_vor | reminder_tag) {
+    reminder_tag <- !is.na(spiel$vvk_datum_parsed) &
+                    spiel$vvk_datum_parsed == heute &
+                    hour(Sys.time()) == 13    
+        if(reminder_vor | reminder_tag) {
       nachricht <- paste0(
         "🔔🎟️ REMINDER TICKETKAUF! 🔔🎟️\n\n",
         "Spieltyp: ", spiel$spieltyp, "\n",
