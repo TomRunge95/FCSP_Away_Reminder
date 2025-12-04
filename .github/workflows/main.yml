@@ -14,20 +14,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Enable r2u binary repo
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev libgit2-dev
+          sudo bash -c 'echo "deb [signed-by=/usr/share/keyrings/cran-archive-keyring.gpg] \
+          https://r2u.rstudio.com/ubuntu jammy/main/" > /etc/apt/sources.list.d/cran-r2u.list'
+          curl -fsSL https://r2u.rstudio.com/ubuntu/cran-archive-keyring.gpg | \
+            sudo tee /usr/share/keyrings/cran-archive-keyring.gpg > /dev/null
 
-      - name: Setup R environment
-        uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: '4.4.1'
-          
-      - name: Install R package dependencies
+          sudo apt-get update
+
+      - name: Install R (from Ubuntu) and binary R packages
         run: |
-          Rscript -e 'install.packages(c("dplyr","lubridate","httr","rvest","stringr"))'
-        
+          sudo apt-get install -y --no-install-recommends \
+            r-base \
+            r-cran-dplyr \
+            r-cran-lubridate \
+            r-cran-httr \
+            r-cran-rvest \
+            r-cran-stringr
+
       - name: Run Ticket Reminder
         env:
           bot_token: ${{ secrets.BOT_TOKEN }}
