@@ -39,3 +39,9 @@ jobs:
           chat_id: ${{ secrets.CHAT_ID }}
         run: |
           Rscript Mett_Bot.R
+
+      - name: Upload reminder status
+        uses: actions/upload-artifact@v3
+        with:
+          name: reminder-status
+          path: reminder_status.rds
