@@ -133,8 +133,8 @@ df_spiele <- bind_rows(df_heim, df_auswaerts)
 print(df_spiele)
 
 
-bot_token <- Sys.getenv("METT_TOKEN")
-chat_id <- Sys.getenv("chat_id")
+bot_token <- Sys.getenv("BOT_TOKEN")
+chat_id <- Sys.getenv("CHAT_ID")
 
 # Heute
 heute <- Sys.Date()
