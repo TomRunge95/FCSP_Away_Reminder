@@ -40,8 +40,9 @@ jobs:
         run: |
           Rscript Mett_Bot.R
 
-      - name: Upload reminder status
-        uses: actions/upload-artifact@v3
+      - name: Restore reminder status
+        uses: actions/cache@v3
         with:
-          name: reminder-status
           path: reminder_status.rds
+          key: reminder-status
+
