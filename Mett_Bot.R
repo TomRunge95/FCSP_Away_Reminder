@@ -210,7 +210,7 @@ if (nrow(auswaerts_und_sonder_heim) > 0) {
       if (!schon_gesendet) {
         
         nachricht <- paste0(
-          "🔔🎟️ REMINDER TICKETKAUF! 🔔🎟️\n\n",
+          "🎟️ REMINDER TICKETKAUF! 🎟️\n\n",
           "Spieltyp: ", spiel$spieltyp, "\n",
           "Spiel: ", spiel$heim, " gegen ", spiel$gast, "\n",
           "Datum/Uhrzeit: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
@@ -222,7 +222,7 @@ if (nrow(auswaerts_und_sonder_heim) > 0) {
         response <- POST(
           url,
           body = list(
-            chat_id = "75538067",
+            chat_id = chat_id,
             text = nachricht
           ),
           encode = "json"
