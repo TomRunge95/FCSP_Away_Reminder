@@ -191,8 +191,8 @@ if (nrow(auswaerts_und_sonder_heim) > 0) {
     
     reminder_tag <- !is.na(spiel$vvk_datum_parsed) &
       spiel$vvk_datum_parsed == heute &
-      jetzt >= as.POSIXct(paste(heute, "12:55:00"), tz = "Europe/Berlin") &
-      jetzt <= as.POSIXct(paste(heute, "13:15:00"), tz = "Europe/Berlin")
+      jetzt >= as.POSIXct(paste(heute, "12:30:00"), tz = "Europe/Berlin") &
+      jetzt <= as.POSIXct(paste(heute, "14:30:00"), tz = "Europe/Berlin")
     
     # Welcher Reminder-Typ?
     reminder_typ <- NA
