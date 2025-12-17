@@ -4,6 +4,22 @@ library(stringr)
 library(lubridate)
 library(httr)
 
+
+
+status_file <- "reminder_status.rds"
+
+if (file.exists(status_file)) {
+  reminder_status <- readRDS(status_file)
+} else {
+  reminder_status <- data.frame(
+    spiel_id = character(),
+    reminder_typ = character(), # "vor" oder "tag"
+    gesendet_am = as.POSIXct(character()),
+    stringsAsFactors = FALSE
+  )
+}
+
+
 Sys.setenv(TZ = "Europe/Berlin")
 
 # URLs für Heim- und Auswärtsspiele
@@ -64,22 +80,25 @@ scrape_spiele <- function(url, typ) {
       html_text(trim = TRUE) %>%
       paste(collapse = " | ")
     
-    # Alle Datumsangaben extrahieren
-    vvk_daten_raw <- str_extract_all(vvk_info, "\\d{2}\\.\\d{2}") %>% unlist()
+    # --------------------------------------------------
+    # Mitglieder-&-Abo-Block extrahieren
+    # --------------------------------------------------
+    vvk_block <- str_extract(
+      vvk_info,
+      "Mitglieder\\s*(?:&|und)?\\s*Abo-Inhaber\\*innen[^|]*"
+    )
     
-    # Frühestes Datum wählen
-    vvk_datum <- if(length(vvk_daten_raw) > 0) {
-      # Aktuelles Jahr hinzufügen, damit sortierbar
-      daten_mit_jahr <- paste0(vvk_daten_raw, ".", year(Sys.Date()))
-      min_date <- min(dmy(daten_mit_jahr), na.rm = TRUE)
-      format(min_date, "%d.%m")
-    } else {
-      NA
+    # Datum aus dem Block
+    vvk_datum <- str_extract(vvk_block, "\\d{2}\\.\\d{2}")
+    
+    # Uhrzeit aus dem Block
+    vvk_uhrzeit <- str_extract(vvk_block, "\\d{1,2}\\s*Uhr")
+    
+    # Fallback Uhrzeit
+    if (is.na(vvk_uhrzeit)) {
+      vvk_uhrzeit <- "15 Uhr"
     }
     
-    # Uhrzeiten extrahieren (falls mehrere, hier einfach alle zusammen)
-    vvk_uhrzeit <- str_extract(vvk_info, "\\d{1,2} Uhr")
-    if(is.na(vvk_uhrzeit)) vvk_uhrzeit <- "15 Uhr"  # Fallback    
     
     tibble(
       spieltyp = spieltyp,
@@ -114,7 +133,7 @@ df_spiele <- bind_rows(df_heim, df_auswaerts)
 print(df_spiele)
 
 
-bot_token <- Sys.getenv("bot_token")
+bot_token <- Sys.getenv("METT_TOKEN")
 chat_id <- Sys.getenv("chat_id")
 
 # Heute
@@ -145,42 +164,91 @@ auswaerts_und_sonder_heim <- df_spiele %>%
       (art == "Heimspiel" & !grepl("^\\d+\\. Spieltag$", spieltyp))
   )
 
+
+
+
 # Nachricht nur senden, wenn Bedingungen erfüllt sind
-if(nrow(auswaerts_und_sonder_heim) > 0) {
+if (nrow(auswaerts_und_sonder_heim) > 0) {
   
-  for(i in 1:nrow(auswaerts_und_sonder_heim)) {
+  for (i in seq_len(nrow(auswaerts_und_sonder_heim))) {
+    
     spiel <- auswaerts_und_sonder_heim[i, ]
     
-    # Bedingungen prüfen:
-    # 1. Einen Tag vorher
-    reminder_vor <- !is.na(spiel$vvk_datum_parsed) & spiel$vvk_datum_parsed - 1 == heute
-    # 2. Am Spieltag um 14 Uhr
+    # Eindeutige Spiel-ID
+    spiel_id <- paste(
+      spiel$heim,
+      spiel$gast,
+      spiel$datum,
+      sep = "_"
+    )
+    
+    
+    jetzt <- Sys.time()
+    
+    # Bedingungen prüfen
+    reminder_vor <- !is.na(spiel$vvk_datum_parsed) &
+      spiel$vvk_datum_parsed - 1 == heute
+    
     reminder_tag <- !is.na(spiel$vvk_datum_parsed) &
-                    spiel$vvk_datum_parsed == heute &
-                    hour(Sys.time()) == 13    
-        if(reminder_vor | reminder_tag) {
-      nachricht <- paste0(
-        "🔔🎟️ REMINDER TICKETKAUF! 🔔🎟️\n\n",
-        "Spieltyp: ", spiel$spieltyp, "\n",
-        "Spiel: ", spiel$heim, " gegen ", spiel$gast, "\n",
-        "Datum/Uhrzeit: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-        "VVK: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit
+      spiel$vvk_datum_parsed == heute &
+      jetzt >= as.POSIXct(paste(heute, "12:55:00"), tz = "Europe/Berlin") &
+      jetzt <= as.POSIXct(paste(heute, "13:15:00"), tz = "Europe/Berlin")
+    
+    # Welcher Reminder-Typ?
+    reminder_typ <- NA
+    if (reminder_vor) reminder_typ <- "vor"
+    if (reminder_tag) reminder_typ <- "tag"
+    
+    if (!is.na(reminder_typ)) {
+      
+      # Prüfen ob schon gesendet
+      schon_gesendet <- any(
+        reminder_status$spiel_id == spiel_id &
+          reminder_status$reminder_typ == reminder_typ
       )
       
-      url <- paste0("https://api.telegram.org/bot", bot_token, "/sendMessage")
-      response <- POST(
-        url,
-        body = list(
-          chat_id = chat_id,
-          text = nachricht
-        ),
-        encode = "json"
-      )
-      
-      print(content(response, "parsed"))
+      if (!schon_gesendet) {
+        
+        nachricht <- paste0(
+          "🔔🎟️ REMINDER TICKETKAUF! 🔔🎟️\n\n",
+          "Spieltyp: ", spiel$spieltyp, "\n",
+          "Spiel: ", spiel$heim, " gegen ", spiel$gast, "\n",
+          "Datum/Uhrzeit: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+          "VVK: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit
+        )
+        
+        url <- paste0("https://api.telegram.org/bot", bot_token, "/sendMessage")
+        
+        response <- POST(
+          url,
+          body = list(
+            chat_id = "75538067",
+            text = nachricht
+          ),
+          encode = "json"
+        )
+        
+        print(content(response, "parsed"))
+        
+        # Status speichern
+        reminder_status <- rbind(
+          reminder_status,
+          data.frame(
+            spiel_id = spiel_id,
+            reminder_typ = reminder_typ,
+            gesendet_am = Sys.time(),
+            stringsAsFactors = FALSE
+          )
+        )
+        
+        saveRDS(reminder_status, status_file)
+        
+      } else {
+        cat("⏭️ Reminder bereits gesendet für:", spiel_id, reminder_typ, "\n")
+      }
     }
   }
+  
 } else {
   cat("Keine relevanten Spiele für Reminder heute.\n")
 }
-
