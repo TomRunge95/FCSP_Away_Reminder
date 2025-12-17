@@ -14,6 +14,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Restore reminder status
+        uses: actions/cache@v3
+        with:
+          path: reminder_status.rds
+          key: reminder-status
+
       - name: Enable r2u binary repo
         run: |
           sudo bash -c 'echo "deb [signed-by=/usr/share/keyrings/cran-archive-keyring.gpg] \
