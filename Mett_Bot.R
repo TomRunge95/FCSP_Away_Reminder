@@ -80,7 +80,7 @@ scrape_spiele <- function(url, typ) {
       "Mitglieder\\s*(?:&|und)?\\s*Abo-Inhaber\\*innen[^|]*"
     )
     
-    vvk_datum <- str_extract(vvk_block, "\\d{2}\\.\\d{2}")
+    vvk_datum <- str_extract(vvk_block, "\\b\\d{1,2}\\.\\d{1,2}(?:\\.\\d{2,4})?\\b")
     vvk_uhrzeit <- str_extract(vvk_block, "\\d{1,2}\\s*Uhr")
     
     if (is.na(vvk_uhrzeit)) vvk_uhrzeit <- "15 Uhr"
