@@ -2,8 +2,7 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '0 8 * * *'
-    - cron: '0 11 * * *'
+    - cron: '0 10-16 * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,12 +12,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Restore reminder status
-        uses: actions/cache@v3
         with:
-          path: reminder_status.rds
-          key: reminder-status
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Enable r2u binary repo
         run: |
@@ -26,7 +22,6 @@ jobs:
           https://r2u.rstudio.com/ubuntu jammy/main/" > /etc/apt/sources.list.d/cran-r2u.list'
           curl -fsSL https://r2u.rstudio.com/ubuntu/cran-archive-keyring.gpg | \
             sudo tee /usr/share/keyrings/cran-archive-keyring.gpg > /dev/null
-
           sudo apt-get update
 
       - name: Install R (from Ubuntu) and binary R packages
@@ -46,4 +41,10 @@ jobs:
         run: |
           Rscript Mett_Bot.R
 
- 
+      - name: Commit reminder status
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add reminder_status.rds
+          git diff --cached --quiet || git commit -m "Update reminder status"
+          git push
