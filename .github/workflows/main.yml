@@ -2,7 +2,7 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '0 10-16 * * *'
+    - cron: '0 10-16 * * *'  # Läuft jede Stunde von 10 bis 16 Uhr
   workflow_dispatch:
 
 jobs:
@@ -34,6 +34,14 @@ jobs:
             r-cran-rvest \
             r-cran-stringr
 
+      # 🟢 Cache für reminder_status.rds wiederherstellen
+      - name: Restore reminder status cache
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: reminder_status.rds
+          key: reminder-status
+
       - name: Run Ticket Reminder
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -41,10 +49,10 @@ jobs:
         run: |
           Rscript Mett_Bot.R
 
-      - name: Commit reminder status
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add reminder_status.rds
-          git diff --cached --quiet || git commit -m "Update reminder status"
-          git push
+      # 🟢 Cache aktualisieren
+      - name: Save reminder status cache
+        uses: actions/cache@v3
+        with:
+          path: reminder_status.rds
+          key: reminder-status
+
