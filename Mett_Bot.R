@@ -181,11 +181,12 @@ for (i in seq_len(nrow(relevant))) {
       "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit
     )
     
-    POST(
+    resp <- POST(
       paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
       body = list(chat_id = chat_id, text = text),
       encode = "json"
     )
+    res_content <- content(resp)
     
     reminder_status <- rbind(
       reminder_status,
@@ -211,7 +212,7 @@ for (i in seq_len(nrow(relevant))) {
   # ==================================================
   bedingung_tag <- !is.na(spiel$vvk_datum_parsed) &&
     spiel$vvk_datum_parsed == heute &&
-    jetzt >= as.POSIXct(paste(heute, "12:30:00"), tz = "Europe/Berlin") &&
+    jetzt >= as.POSIXct(paste(heute, "12:00:00"), tz = "Europe/Berlin") &&
     jetzt <= as.POSIXct(paste(heute, "14:30:00"), tz = "Europe/Berlin")
   
   gesendet_tag <- any(
@@ -227,17 +228,18 @@ for (i in seq_len(nrow(relevant))) {
     cat("[TAG] ➜ Nachricht WIRD gesendet\n")
     
     text <- paste0(
-      "🚨 JETZT TICKETS KAUFEN!\n\n",
+      "🚨 GLEICH TICKETS KAUFEN!\n\n",
       "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
       "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-      "VVK läuft seit: ", spiel$vvk_uhrzeit
+      "VVK um: ", spiel$vvk_uhrzeit
     )
     
-    POST(
+    resp <- POST(
       paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
       body = list(chat_id = chat_id, text = text),
       encode = "json"
     )
+    res_content <- content(resp)
     
     reminder_status <- rbind(
       reminder_status,
