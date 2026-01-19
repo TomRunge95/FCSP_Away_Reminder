@@ -2,7 +2,7 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '0 10-16 * * *'  # Läuft jede Stunde von 10 bis 16 Uhr
+    - cron: '0 10-16 * * *'  # jede Stunde von 10 bis 16 Uhr
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
             sudo tee /usr/share/keyrings/cran-archive-keyring.gpg > /dev/null
           sudo apt-get update
 
-      - name: Install R (from Ubuntu) and binary R packages
+      - name: Install R and required R packages
         run: |
           sudo apt-get install -y --no-install-recommends \
             r-base \
@@ -34,10 +34,10 @@ jobs:
             r-cran-rvest \
             r-cran-stringr
 
-      # 🟢 Cache für reminder_status.rds wiederherstellen
+      # 🟢 Cache wiederherstellen (letzter gültiger Status)
       - name: Restore reminder status cache
-        id: cache
-        uses: actions/cache@v3
+        id: restore-cache
+        uses: actions/cache/restore@v3
         with:
           path: reminder_status.rds
           key: reminder-status
@@ -49,10 +49,9 @@ jobs:
         run: |
           Rscript Mett_Bot.R
 
-      # 🟢 Cache aktualisieren
+      # 🟢 Cache neu speichern (immer neuer Key!)
       - name: Save reminder status cache
-        uses: actions/cache@v3
+        uses: actions/cache/save@v3
         with:
           path: reminder_status.rds
-          key: reminder-status
-
+          key: reminder-status-${{ github.run_id }}
