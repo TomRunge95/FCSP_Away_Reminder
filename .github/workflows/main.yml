@@ -34,13 +34,13 @@ jobs:
             r-cran-rvest \
             r-cran-stringr
 
-      # 🟢 Cache wiederherstellen (letzter gültiger Status)
       - name: Restore reminder status cache
-        id: restore-cache
-        uses: actions/cache/restore@v3
+        uses: actions/cache@v4
         with:
           path: reminder_status.rds
-          key: reminder-status
+          key: reminder-status-${{ github.run_id }}
+          restore-keys: |
+            reminder-status-
 
       - name: Run Ticket Reminder
         env:
@@ -49,9 +49,3 @@ jobs:
         run: |
           Rscript Mett_Bot.R
 
-      # 🟢 Cache neu speichern (immer neuer Key!)
-      - name: Save reminder status cache
-        uses: actions/cache/save@v3
-        with:
-          path: reminder_status.rds
-          key: reminder-status-${{ github.run_id }}
