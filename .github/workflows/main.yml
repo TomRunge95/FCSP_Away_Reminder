@@ -2,7 +2,7 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '0 10-16 * * *'  # jede Stunde von 10 bis 16 Uhr
+    - cron: '0 8-18 * * *'  # jede Stunde von 10 bis 16 Uhr
   workflow_dispatch:
 
 jobs:
