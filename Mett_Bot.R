@@ -5,22 +5,21 @@ library(lubridate)
 library(httr)
 
 # --------------------------------------------------
-# Zeitzone korrekt setzen
+# Zeitzone setzen
 # --------------------------------------------------
 jetzt <- with_tz(Sys.time(), "Europe/Berlin")
 heute <- as.Date(jetzt)
 
 # --------------------------------------------------
-# Reminder-Status laden oder anlegen
+# Status laden oder neu erstellen
 # --------------------------------------------------
 status_file <- "reminder_status.rds"
-
 if (file.exists(status_file)) {
   reminder_status <- readRDS(status_file)
 } else {
   reminder_status <- data.frame(
     spiel_id = character(),
-    reminder_typ = character(), # "vor" oder "tag"
+    reminder_typ = character(),
     gesendet_am = as.POSIXct(character()),
     stringsAsFactors = FALSE
   )
@@ -42,51 +41,21 @@ scrape_spiele <- function(url, typ) {
   spiele <- page %>% html_nodes("li.md\\:after\\:bg-primary-brown")
   
   bind_rows(lapply(spiele, function(spiel) {
-    
-    spieltyp <- spiel %>%
-      html_node("p.text-label-s.font-800") %>%
-      html_text(trim = TRUE)
-    
-    datum_uhrzeit <- spiel %>%
-      html_nodes("p.text-label-s") %>%
-      html_text(trim = TRUE)
-    
+    spieltyp <- spiel %>% html_node("p.text-label-s.font-800") %>% html_text(trim = TRUE)
+    datum_uhrzeit <- spiel %>% html_nodes("p.text-label-s") %>% html_text(trim = TRUE)
     datum <- str_extract(datum_uhrzeit[2], "\\d{2}\\.\\d{2}\\.\\d{4}")
     uhrzeit <- str_extract(datum_uhrzeit[2], "\\d{2}:\\d{2}")
     stadion <- datum_uhrzeit[3]
+    vereine <- spiel %>% html_nodes("p.text-headline-5") %>% html_text(trim = TRUE)
+    heim <- vereine[1]; gast <- vereine[2]
+    ticket_link <- spiel %>% html_node("a[href*='ticket-onlineshop.com']") %>% html_attr("href")
+    spielbericht_link <- spiel %>% html_node("a[href*='/news/']") %>% html_attr("href")
+    ticket_status <- spiel %>% html_node("div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > p:nth-child(2)") %>% html_text(trim = TRUE)
+    vvk_info <- spiel %>% html_nodes(".flex.flex-col.items-start.gap-10.text-right") %>% html_text(trim = TRUE) %>% paste(collapse = " | ")
     
-    vereine <- spiel %>%
-      html_nodes("p.text-headline-5") %>%
-      html_text(trim = TRUE)
-    
-    heim <- vereine[1]
-    gast <- vereine[2]
-    
-    ticket_link <- spiel %>%
-      html_node("a[href*='ticket-onlineshop.com']") %>%
-      html_attr("href")
-    
-    spielbericht_link <- spiel %>%
-      html_node("a[href*='/news/']") %>%
-      html_attr("href")
-    
-    ticket_status <- spiel %>%
-      html_node("div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > p:nth-child(2)") %>%
-      html_text(trim = TRUE)
-    
-    vvk_info <- spiel %>%
-      html_nodes(".flex.flex-col.items-start.gap-10.text-right") %>%
-      html_text(trim = TRUE) %>%
-      paste(collapse = " | ")
-    
-    vvk_block <- str_extract(
-      vvk_info,
-      "Mitglieder\\s*(?:&|und)?\\s*Abo-Inhaber\\*innen[^|]*"
-    )
-    
+    vvk_block <- str_extract(vvk_info, "Mitglieder\\s*(?:&|und)?\\s*Abo-Inhaber\\*innen[^|]*")
     vvk_datum <- str_extract(vvk_block, "\\b\\d{1,2}\\.\\d{1,2}(?:\\.\\d{2,4})?\\b")
     vvk_uhrzeit <- str_extract(vvk_block, "\\d{1,2}\\s*Uhr")
-    
     if (is.na(vvk_uhrzeit)) vvk_uhrzeit <- "15 Uhr"
     
     tibble(
@@ -119,14 +88,9 @@ df_spiele <- bind_rows(
 # Datum vorbereiten
 # --------------------------------------------------
 safe_dmy <- function(x) suppressWarnings(dmy(x))
-
 df_spiele <- df_spiele %>%
   mutate(
-    vvk_datum_full = ifelse(
-      !is.na(vvk_datum) & vvk_datum != "",
-      paste0(vvk_datum, ".", year(heute)),
-      NA_character_
-    ),
+    vvk_datum_full = ifelse(!is.na(vvk_datum) & vvk_datum != "", paste0(vvk_datum, ".", year(heute)), NA_character_),
     vvk_datum_parsed = safe_dmy(vvk_datum_full)
   )
 
@@ -140,120 +104,83 @@ relevant <- df_spiele %>%
   )
 
 # --------------------------------------------------
-# Telegram Konfiguration
+# Telegram Config
 # --------------------------------------------------
 bot_token <- Sys.getenv("BOT_TOKEN")
 chat_id <- Sys.getenv("CHAT_ID")
 
 if (nchar(bot_token) == 0 || nchar(chat_id) == 0) {
-  stop("BOT_TOKEN oder CHAT_ID nicht gesetzt!")
+  stop("[FEHLER] BOT_TOKEN oder CHAT_ID nicht gesetzt!")
+}
+
+# --------------------------------------------------
+# Logging-Funktion (sicher)
+# --------------------------------------------------
+safe_log <- function(msg) {
+  cat(format(jetzt, "%Y-%m-%d %H:%M:%S"), "- ", msg, "\n")
 }
 
 # --------------------------------------------------
 # Reminder-Logik
 # --------------------------------------------------
 for (i in seq_len(nrow(relevant))) {
-  
   spiel <- relevant[i, ]
   jetzt <- with_tz(Sys.time(), "Europe/Berlin")
   heute <- as.Date(jetzt)
   
   spiel_id <- paste(spiel$heim, spiel$gast, spiel$datum, sep = "_")
   
-  cat("\n============================\n")
-  cat("Spiel:", spiel_id, "\n")
-  cat("VVK Datum:", spiel$vvk_datum_parsed, "heute:", heute, "\n")
+  safe_log(paste("Spiel:", spiel_id))
+  safe_log(paste("VVK Datum:", spiel$vvk_datum_parsed, "heute:", heute))
   
-  # ==================================================
-  # Reminder "vor" (1 Tag vorher)
-  # ==================================================
-  bedingung_vor <- !is.na(spiel$vvk_datum_parsed) &&
-    (spiel$vvk_datum_parsed - days(1)) == heute
-  
-  gesendet_vor <- any(
-    reminder_status$spiel_id == spiel_id &
-      reminder_status$reminder_typ == "vor"
-  )
-  
-  cat("[VOR] Bedingung erfüllt:", bedingung_vor, "\n")
-  cat("[VOR] Bereits gesendet:", gesendet_vor, "\n")
+  # --------- Reminder "vor" ---------
+  bedingung_vor <- !is.na(spiel$vvk_datum_parsed) && (spiel$vvk_datum_parsed - days(1)) == heute
+  gesendet_vor <- any(reminder_status$spiel_id == spiel_id & reminder_status$reminder_typ == "vor")
+  safe_log(paste("[VOR] Bedingung erfüllt:", bedingung_vor, "Bereits gesendet:", gesendet_vor))
   
   if (bedingung_vor && !gesendet_vor) {
+    safe_log("[VOR] ➜ Nachricht wird gesendet")
+    text <- paste0("🎟️ REMINDER TICKETKAUF (MORGEN)\n\n",
+                   "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+                   "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+                   "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit)
     
-    cat("[VOR] ➜ Nachricht WIRD gesendet\n")
+    resp <- POST(paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
+                 body = list(chat_id = chat_id, text = text), encode = "json")
     
-    text <- paste0(
-      "🎟️ REMINDER TICKETKAUF (MORGEN)\n\n",
-      "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
-      "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-      "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit
-    )
+    res <- content(resp)
+    safe_log(paste("[VOR] Telegram Response OK:", res$ok))
+    if (!res$ok) safe_log(paste("[VOR] Telegram Fehler:", res$description))
     
-    resp <- POST(
-      paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-      body = list(chat_id = chat_id, text = text),
-      encode = "json"
-    )
-    
-    print(content(resp))  # Telegram-Response checken
-    stop_for_status(resp) # Fehler sofort sichtbar machen
-    
-    reminder_status <- rbind(
-      reminder_status,
-      data.frame(
-        spiel_id = spiel_id,
-        reminder_typ = "vor",
-        gesendet_am = jetzt,
-        stringsAsFactors = FALSE
-      )
-    )
+    reminder_status <- rbind(reminder_status,
+                             data.frame(spiel_id=spiel_id, reminder_typ="vor", gesendet_am=jetzt, stringsAsFactors=FALSE))
   }
   
-  # ==================================================
-  # Reminder "tag" (am selben Tag, Zeitfenster)
-  # ==================================================
+  # --------- Reminder "tag" ---------
   bedingung_tag <- !is.na(spiel$vvk_datum_parsed) &&
     spiel$vvk_datum_parsed == heute &&
-    jetzt >= as.POSIXct(paste(heute, "10:00:00"), tz = "Europe/Berlin") &&
-    jetzt <= as.POSIXct(paste(heute, "14:30:00"), tz = "Europe/Berlin")
+    jetzt >= as.POSIXct(paste(heute, "10:00:00"), tz="Europe/Berlin") &&
+    jetzt <= as.POSIXct(paste(heute, "14:30:00"), tz="Europe/Berlin")
   
-  gesendet_tag <- any(
-    reminder_status$spiel_id == spiel_id &
-      reminder_status$reminder_typ == "tag"
-  )
-  
-  cat("[TAG] Bedingung erfüllt:", bedingung_tag, "\n")
-  cat("[TAG] Bereits gesendet:", gesendet_tag, "\n")
+  gesendet_tag <- any(reminder_status$spiel_id == spiel_id & reminder_status$reminder_typ == "tag")
+  safe_log(paste("[TAG] Bedingung erfüllt:", bedingung_tag, "Bereits gesendet:", gesendet_tag))
   
   if (bedingung_tag && !gesendet_tag) {
+    safe_log("[TAG] ➜ Nachricht wird gesendet")
+    text <- paste0("🚨 GLEICH TICKETS KAUFEN!\n\n",
+                   "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+                   "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+                   "VVK um: ", spiel$vvk_uhrzeit)
     
-    cat("[TAG] ➜ Nachricht WIRD gesendet\n")
+    resp <- POST(paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
+                 body = list(chat_id = chat_id, text = text), encode = "json")
     
-    text <- paste0(
-      "🚨 GLEICH TICKETS KAUFEN!\n\n",
-      "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
-      "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-      "VVK um: ", spiel$vvk_uhrzeit
-    )
+    res <- content(resp)
+    safe_log(paste("[TAG] Telegram Response OK:", res$ok))
+    if (!res$ok) safe_log(paste("[TAG] Telegram Fehler:", res$description))
     
-    resp <- POST(
-      paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-      body = list(chat_id = chat_id, text = text),
-      encode = "json"
-    )
-    
-    print(content(resp))
-    stop_for_status(resp)
-    
-    reminder_status <- rbind(
-      reminder_status,
-      data.frame(
-        spiel_id = spiel_id,
-        reminder_typ = "tag",
-        gesendet_am = jetzt,
-        stringsAsFactors = FALSE
-      )
-    )
+    reminder_status <- rbind(reminder_status,
+                             data.frame(spiel_id=spiel_id, reminder_typ="tag", gesendet_am=jetzt, stringsAsFactors=FALSE))
   }
 }
 
@@ -261,3 +188,4 @@ for (i in seq_len(nrow(relevant))) {
 # Status speichern
 # --------------------------------------------------
 saveRDS(reminder_status, status_file)
+safe_log("Reminder-Status gespeichert ✅")
