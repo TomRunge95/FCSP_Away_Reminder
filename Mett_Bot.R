@@ -145,8 +145,16 @@ for (i in seq_len(nrow(relevant))) {
                    "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
                    "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit)
     
-    resp <- POST(paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-                 body = list(chat_id = chat_id, text = text), encode = "json")
+    resp <- POST(
+        paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
+        body = list(chat_id = chat_id, text = text),
+        encode = "json"
+      )
+
+safe_log(paste("HTTP Status:", status_code(resp)))
+safe_log(paste("Raw Response:", content(resp, "text", encoding="UTF-8")))
+
+res <- content(resp)
     
     res <- content(resp)
     safe_log(paste("[VOR] Telegram Response OK:", res$ok))
@@ -172,8 +180,16 @@ for (i in seq_len(nrow(relevant))) {
                    "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
                    "VVK um: ", spiel$vvk_uhrzeit)
     
-    resp <- POST(paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-                 body = list(chat_id = chat_id, text = text), encode = "json")
+   resp <- POST(
+  paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
+  body = list(chat_id = chat_id, text = text),
+  encode = "json"
+)
+
+safe_log(paste("HTTP Status:", status_code(resp)))
+safe_log(paste("Raw Response:", content(resp, "text", encoding="UTF-8")))
+
+res <- content(resp)
     
     res <- content(resp)
     safe_log(paste("[TAG] Telegram Response OK:", res$ok))
