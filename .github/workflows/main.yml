@@ -38,9 +38,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: reminder_status.rds
-          key: reminder-status-${{ github.run_id }}
-          restore-keys: |
-            reminder-status-
+          key: reminder-status-v1
 
       - name: Run Ticket Reminder
         env:
