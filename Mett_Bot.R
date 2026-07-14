@@ -11,6 +11,53 @@ jetzt <- with_tz(Sys.time(), "Europe/Berlin")
 heute <- as.Date(jetzt)
 
 # --------------------------------------------------
+# Logging-Funktion (sicher)
+# --------------------------------------------------
+safe_log <- function(msg) {
+  cat(format(jetzt, "%Y-%m-%d %H:%M:%S"), "- ", msg, "\n")
+}
+
+# --------------------------------------------------
+# Telegram Config
+# --------------------------------------------------
+bot_token <- Sys.getenv("BOT_TOKEN")
+chat_id <- Sys.getenv("CHAT_ID")
+
+if (nchar(bot_token) == 0 || nchar(chat_id) == 0) {
+  stop("[FEHLER] BOT_TOKEN oder CHAT_ID nicht gesetzt!")
+}
+
+telegram_send_message <- function(text, log_prefix = "TELEGRAM") {
+  resp <- POST(
+    paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
+    body = list(chat_id = chat_id, text = text),
+    encode = "json"
+  )
+  
+  safe_log(paste0("[", log_prefix, "] HTTP Status: ", status_code(resp)))
+  safe_log(paste0("[", log_prefix, "] Raw Response: ", content(resp, "text", encoding = "UTF-8")))
+  
+  res <- content(resp)
+  safe_log(paste0("[", log_prefix, "] Telegram Response OK: ", res$ok))
+  if (!res$ok) safe_log(paste0("[", log_prefix, "] Telegram Fehler: ", res$description))
+  
+  invisible(res)
+}
+
+test_bot <- tolower(Sys.getenv("TEST_BOT")) %in% c("1", "true", "ja", "yes")
+
+if (test_bot) {
+  safe_log("TEST_BOT aktiv: Testnachricht wird gesendet")
+  telegram_send_message(
+    paste0("✅ Testnachricht vom FCSP Ticket Reminder Bot\n\n",
+           "Wenn diese Nachricht in der Gruppe ankommt, funktioniert der Telegram-Versand.\n",
+           "Zeitpunkt: ", format(jetzt, "%Y-%m-%d %H:%M:%S %Z")),
+    "TEST"
+  )
+  quit(save = "no", status = 0)
+}
+
+# --------------------------------------------------
 # Status laden oder neu erstellen
 # --------------------------------------------------
 status_file <- "reminder_status.rds"
@@ -99,25 +146,38 @@ df_spiele <- df_spiele %>%
 # --------------------------------------------------
 relevant <- df_spiele %>%
   filter(
-    (art == "Auswärtsspiel" & !is.na(vvk_datum_parsed)) |
-      (art == "Heimspiel" & !grepl("^\\d+\\. Spieltag$", spieltyp))
+    !is.na(vvk_datum_parsed) &
+      art %in% c("Heimspiel", "Auswärtsspiel")
   )
 
-# --------------------------------------------------
-# Telegram Config
-# --------------------------------------------------
-bot_token <- Sys.getenv("BOT_TOKEN")
-chat_id <- Sys.getenv("CHAT_ID")
-
-if (nchar(bot_token) == 0 || nchar(chat_id) == 0) {
-  stop("[FEHLER] BOT_TOKEN oder CHAT_ID nicht gesetzt!")
-}
-
-# --------------------------------------------------
-# Logging-Funktion (sicher)
-# --------------------------------------------------
-safe_log <- function(msg) {
-  cat(format(jetzt, "%Y-%m-%d %H:%M:%S"), "- ", msg, "\n")
+baue_reminder_text <- function(spiel, reminder_typ) {
+  if (spiel$art == "Heimspiel") {
+    if (reminder_typ == "vor") {
+      return(paste0("🏟️ HEIMSPIEL-TICKETS FÜR ALLE OHNE DAUERKARTE\n\n",
+                    "Morgen startet der VVK für alle ohne Dauerkarte.\n",
+                    "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+                    "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+                    "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit))
+    }
+    
+    return(paste0("🚨 HEIMSPIEL-TICKETS JETZT SICHERN!\n\n",
+                  "Für alle ohne Dauerkarte: Jetzt Tickets kaufen.\n",
+                  "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+                  "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+                  "VVK um: ", spiel$vvk_uhrzeit))
+  }
+  
+  if (reminder_typ == "vor") {
+    return(paste0("🎟️ REMINDER TICKETKAUF (MORGEN)\n\n",
+                  "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+                  "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+                  "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit))
+  }
+  
+  paste0("🚨 GLEICH TICKETS KAUFEN!\n\n",
+         "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
+         "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
+         "VVK um: ", spiel$vvk_uhrzeit)
 }
 
 # --------------------------------------------------
@@ -140,25 +200,9 @@ for (i in seq_len(nrow(relevant))) {
   
   if (bedingung_vor && !gesendet_vor) {
     safe_log("[VOR] ➜ Nachricht wird gesendet")
-    text <- paste0("🎟️ REMINDER TICKETKAUF (MORGEN)\n\n",
-                   "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
-                   "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-                   "VVK startet: ", spiel$vvk_datum, " ", spiel$vvk_uhrzeit)
+    text <- baue_reminder_text(spiel, "vor")
     
-    resp <- POST(
-        paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-        body = list(chat_id = chat_id, text = text),
-        encode = "json"
-      )
-
-safe_log(paste("HTTP Status:", status_code(resp)))
-safe_log(paste("Raw Response:", content(resp, "text", encoding="UTF-8")))
-
-res <- content(resp)
-    
-    res <- content(resp)
-    safe_log(paste("[VOR] Telegram Response OK:", res$ok))
-    if (!res$ok) safe_log(paste("[VOR] Telegram Fehler:", res$description))
+    res <- telegram_send_message(text, "VOR")
     
     reminder_status <- rbind(reminder_status,
                              data.frame(spiel_id=spiel_id, reminder_typ="vor", gesendet_am=jetzt, stringsAsFactors=FALSE))
@@ -175,25 +219,9 @@ res <- content(resp)
   
   if (bedingung_tag && !gesendet_tag) {
     safe_log("[TAG] ➜ Nachricht wird gesendet")
-    text <- paste0("🚨 GLEICH TICKETS KAUFEN!\n\n",
-                   "Spiel: ", spiel$heim, " – ", spiel$gast, "\n",
-                   "Datum: ", spiel$datum, " ", spiel$uhrzeit, " Uhr\n",
-                   "VVK um: ", spiel$vvk_uhrzeit)
+    text <- baue_reminder_text(spiel, "tag")
     
-   resp <- POST(
-  paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
-  body = list(chat_id = chat_id, text = text),
-  encode = "json"
-)
-
-safe_log(paste("HTTP Status:", status_code(resp)))
-safe_log(paste("Raw Response:", content(resp, "text", encoding="UTF-8")))
-
-res <- content(resp)
-    
-    res <- content(resp)
-    safe_log(paste("[TAG] Telegram Response OK:", res$ok))
-    if (!res$ok) safe_log(paste("[TAG] Telegram Fehler:", res$description))
+    res <- telegram_send_message(text, "TAG")
     
     reminder_status <- rbind(reminder_status,
                              data.frame(spiel_id=spiel_id, reminder_typ="tag", gesendet_am=jetzt, stringsAsFactors=FALSE))
