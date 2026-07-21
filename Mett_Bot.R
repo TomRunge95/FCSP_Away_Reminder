@@ -85,6 +85,12 @@ fallback_urls <- c(
   auswaerts = "https://www.fcstpauli.com/fu%C3%9Fball/tickets/auswaertsspiele"
 )
 
+shop_user_agent <- Sys.getenv(
+  "SHOP_USER_AGENT",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+)
+
 # --------------------------------------------------
 # Scraping-Funktion
 # --------------------------------------------------
@@ -263,7 +269,6 @@ extract_fcsp_news_game <- function(news_url, typ, source_url) {
   ) %>%
     filter(!is.na(vvk_datum), !is.na(datum))
 }
-
 extract_shop_games <- function(text, typ, ticket_link) {
   text <- clean_shop_text(text)
   text <- str_replace(text, "\\s*Hinweis:.*$", "")
@@ -330,15 +335,33 @@ extract_shop_games <- function(text, typ, ticket_link) {
 scrape_spiele <- function(url, typ) {
   resp <- GET(
     url,
-    user_agent("Mozilla/5.0 FCSP-Ticket-Reminder/1.0"),
+    user_agent(shop_user_agent),
+    add_headers(
+      Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      `Accept-Language` = "de-DE,de;q=0.9,en;q=0.8",
+      `Cache-Control` = "no-cache",
+      Pragma = "no-cache",
+      `Upgrade-Insecure-Requests` = "1",
+      `Sec-Fetch-Dest` = "document",
+      `Sec-Fetch-Mode` = "navigate",
+      `Sec-Fetch-Site` = "none",
+      `Sec-Fetch-User` = "?1"
+    ),
     timeout(30)
   )
   stop_for_status(resp)
   
   page <- read_html(content(resp, "text", encoding = "UTF-8"))
+  page_title <- page %>% html_node("title") %>% html_text2()
+  
+  if (str_detect(page_title, regex("Queue-it", ignore_case = TRUE))) {
+    safe_log(paste("[WARN] Queue-it statt Ticketshop erhalten:", url))
+  }
+  
   info_nodes <- page %>%
     html_nodes(".copy-block.copy-block--full-width .hint, .copy-block .hint")
   if (length(info_nodes) == 0) info_nodes <- page %>% html_nodes("main#main")
+  if (length(info_nodes) == 0) info_nodes <- page %>% html_nodes("body")
   
   info_blocks <- info_nodes %>%
     html_text2() %>%
@@ -349,7 +372,13 @@ scrape_spiele <- function(url, typ) {
     return(empty_spiele_tibble())
   }
   
-  extract_shop_games(info_blocks, typ, url)
+  spiele <- extract_shop_games(info_blocks, typ, url)
+  if (nrow(spiele) == 0) {
+    safe_log(paste("[WARN] Keine Mitgliederverkaufsdaten gefunden:", url, "| Titel:", page_title))
+    safe_log(paste("[WARN] HTML-Textauszug:", str_sub(clean_shop_text(info_blocks), 1, 300)))
+  }
+  
+  spiele
 }
 
 scrape_fcsp_fallback <- function(url, typ) {
