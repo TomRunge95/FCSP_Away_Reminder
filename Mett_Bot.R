@@ -80,6 +80,11 @@ urls <- c(
   auswaerts = "https://www.ticket-onlineshop.com/ols/fcstpauli-auswaerts/de/aw/channel/shop/index"
 )
 
+fallback_urls <- c(
+  heim = "https://www.fcstpauli.com/fu%C3%9Fball/tickets/heimspiele",
+  auswaerts = "https://www.fcstpauli.com/fu%C3%9Fball/tickets/auswaertsspiele"
+)
+
 # --------------------------------------------------
 # Scraping-Funktion
 # --------------------------------------------------
@@ -130,6 +135,135 @@ parse_shop_datetime <- function(date_text, time_text) {
   )
 }
 
+empty_spiele_tibble <- function() {
+  tibble(
+    spieltyp = character(),
+    datum = character(),
+    uhrzeit = character(),
+    stadion = character(),
+    heim = character(),
+    gast = character(),
+    ticket_link = character(),
+    spielbericht_link = character(),
+    ticket_status = character(),
+    vvk_info = character(),
+    vvk_datum = character(),
+    vvk_uhrzeit = character(),
+    vvk_zielgruppe = character(),
+    art = character()
+  )
+}
+
+absolute_fcsp_url <- function(path) {
+  if (is.na(path) || path == "") return(NA_character_)
+  if (str_detect(path, "^https?://")) return(path)
+  paste0("https://www.fcstpauli.com/", str_replace(path, "^/", ""))
+}
+
+opponent_from_news <- function(title, uri, typ) {
+  if (typ == "Heimspiel") {
+    opponent <- str_replace(title, regex("^Ticket-Infos zum Heimspiel gegen\\s+", ignore_case = TRUE), "")
+    opponent <- str_replace(opponent, regex("^(den|die|das)\\s+", ignore_case = TRUE), "")
+    return(str_squish(opponent))
+  }
+  
+  slug <- uri %>%
+    str_replace("^.*/", "") %>%
+    str_replace("^ticket-infos-auswaertsspiel-", "") %>%
+    str_replace("-\\d{4}$", "") %>%
+    str_replace("-\\d{2}\\d{2}$", "") %>%
+    str_replace_all("-", " ") %>%
+    str_to_title()
+  
+  if (str_detect(slug, regex("^Kiel$", ignore_case = TRUE))) return("Holstein Kiel")
+  str_squish(slug)
+}
+
+extract_fcsp_news_game <- function(news_url, typ, source_url) {
+  resp <- GET(
+    news_url,
+    user_agent("Mozilla/5.0 FCSP-Ticket-Reminder/1.0"),
+    timeout(30)
+  )
+  stop_for_status(resp)
+  
+  page <- read_html(content(resp, "text", encoding = "UTF-8"))
+  title <- page %>% html_node("h1") %>% html_text2()
+  main_text <- page %>% html_node("main") %>% html_text2() %>% clean_shop_text()
+  
+  if (is.na(title) || title == "" || !str_detect(title, regex("Ticket-Infos", ignore_case = TRUE))) {
+    return(empty_spiele_tibble())
+  }
+  
+  uri <- str_replace(news_url, "^https://www\\.fcstpauli\\.com/", "")
+  opponent <- opponent_from_news(title, uri, typ)
+  
+  spiel_meta <- str_extract(main_text, "\\(\\d{1,2}\\.\\d{1,2}\\.\\s*,\\s*\\d{1,2}:\\d{2}\\s*Uhr\\)")
+  if (is.na(spiel_meta)) {
+    spiel_meta <- str_extract(main_text, "\\(\\d{1,2}\\.\\d{1,2}\\.\\s*,?\\s*(?:ab\\s*)?\\d{1,2}(?::\\d{2})?\\s*Uhr\\)")
+  }
+  
+  spiel_datum_raw <- str_extract(spiel_meta, "\\d{1,2}\\.\\d{1,2}\\.?(?:\\d{2,4})?")
+  spiel_datum_parsed <- parse_shop_date(spiel_datum_raw)
+  spiel_uhrzeit <- str_extract(spiel_meta, "\\d{1,2}:\\d{2}")
+  
+  vvk_info <- str_extract(
+    main_text,
+    regex("Mitgliedervorverkauf.{0,180}?\\d{1,2}\\.\\d{1,2}\\.?(?:\\d{2,4})?.{0,80}?\\d{1,2}(?::\\d{2})?\\s*Uhr", ignore_case = TRUE)
+  )
+  if (is.na(vvk_info)) {
+    vvk_info <- str_extract(
+      main_text,
+      regex("Verkaufsphase\\s*1\\s*\\([^)]*Mitglieder[^)]*\\).{0,180}?\\d{1,2}\\.\\d{1,2}\\.?(?:\\d{2,4})?.{0,80}?\\d{1,2}(?::\\d{2})?\\s*Uhr", ignore_case = TRUE)
+    )
+  }
+  if (is.na(vvk_info)) {
+    vvk_info <- str_extract(
+      main_text,
+      regex("Mitglieder.{0,220}?\\d{1,2}\\.\\d{1,2}\\.?(?:\\d{2,4})?.{0,80}?\\d{1,2}(?::\\d{2})?\\s*Uhr", ignore_case = TRUE)
+    )
+  }
+  
+  if (is.na(vvk_info) || !str_detect(vvk_info, regex("Mitglieder", ignore_case = TRUE))) {
+    safe_log(paste("[WARN] Keine Mitgliederverkaufsdaten in FCSP-News gefunden:", news_url))
+    return(empty_spiele_tibble())
+  }
+  
+  vvk_info <- clean_shop_text(vvk_info)
+  vvk_datum_raw <- str_extract(vvk_info, "\\(?\\d{1,2}\\.\\d{1,2}\\.?(?:\\d{2,4})?\\)?")
+  vvk_datum_parsed <- parse_shop_date(vvk_datum_raw)
+  vvk_uhrzeit <- str_extract(vvk_info, "\\d{1,2}(?::\\d{2})?\\s*Uhr")
+  if (!is.na(vvk_uhrzeit)) vvk_uhrzeit <- str_squish(vvk_uhrzeit)
+  if (!is.na(vvk_datum_parsed) && is.na(vvk_uhrzeit)) vvk_uhrzeit <- "15 Uhr"
+  
+  zielgruppe <- str_match(vvk_info, regex("Verkaufsphase\\s*1\\s*\\(([^)]*Mitglieder[^)]*)\\)", ignore_case = TRUE))[, 2]
+  if (is.na(zielgruppe) || zielgruppe == "") zielgruppe <- "Mitglieder"
+  zielgruppe <- clean_shop_text(zielgruppe)
+  
+  ticket_link <- page %>%
+    html_node("a[href*='ticket-onlineshop.com']") %>%
+    html_attr("href")
+  if (is.na(ticket_link) || ticket_link == "") ticket_link <- source_url
+  
+  tibble(
+    spieltyp = typ,
+    datum = format_shop_date(spiel_datum_parsed),
+    uhrzeit = ifelse(is.na(spiel_uhrzeit), NA_character_, spiel_uhrzeit),
+    stadion = NA_character_,
+    heim = ifelse(typ == "Heimspiel", "FCSP", opponent),
+    gast = ifelse(typ == "Heimspiel", opponent, "FCSP"),
+    ticket_link = ticket_link,
+    spielbericht_link = news_url,
+    ticket_status = NA_character_,
+    vvk_info = vvk_info,
+    vvk_datum = format_shop_date(vvk_datum_parsed),
+    vvk_uhrzeit = vvk_uhrzeit,
+    vvk_zielgruppe = zielgruppe,
+    art = typ
+  ) %>%
+    filter(!is.na(vvk_datum), !is.na(datum))
+}
+
 extract_shop_games <- function(text, typ, ticket_link) {
   text <- clean_shop_text(text)
   text <- str_replace(text, "\\s*Hinweis:.*$", "")
@@ -139,7 +273,7 @@ extract_shop_games <- function(text, typ, ticket_link) {
     "(?:FCSP|FC St\\. Pauli|[^().!?]{1,80}?)\\s*\\([^()]+\\)"
   )
   headers <- str_locate_all(text, header_pattern)[[1]]
-  if (nrow(headers) == 0) return(tibble())
+  if (nrow(headers) == 0) return(empty_spiele_tibble())
   
   bind_rows(lapply(seq_len(nrow(headers)), function(i) {
     header <- str_sub(text, headers[i, "start"], headers[i, "end"]) %>% clean_shop_text()
@@ -212,10 +346,57 @@ scrape_spiele <- function(url, typ) {
   
   if (info_blocks == "") {
     safe_log(paste("[WARN] Keine Ticketshop-Hinweisblöcke gefunden:", url))
-    return(tibble())
+    return(empty_spiele_tibble())
   }
   
   extract_shop_games(info_blocks, typ, url)
+}
+
+scrape_fcsp_fallback <- function(url, typ) {
+  resp <- GET(
+    url,
+    user_agent("Mozilla/5.0 FCSP-Ticket-Reminder/1.0"),
+    timeout(30)
+  )
+  stop_for_status(resp)
+  
+  html <- content(resp, "text", encoding = "UTF-8")
+  html <- str_replace_all(html, "\\\\/", "/")
+  news_paths <- str_extract_all(
+    html,
+    "news/ticket-infos-(?:heimspiel|auswaertsspiel)-[a-z0-9-]+"
+  )[[1]] %>%
+    unique()
+  
+  news_paths <- news_paths[str_detect(news_paths, ifelse(typ == "Heimspiel", "heimspiel", "auswaertsspiel"))]
+  
+  if (length(news_paths) == 0) {
+    safe_log(paste("[WARN] Keine FCSP-Fallback-News gefunden:", url))
+    return(empty_spiele_tibble())
+  }
+  
+  safe_log(paste("[INFO] FCSP-Fallback-News gefunden:", length(news_paths), "Quelle:", url))
+  
+  bind_rows(lapply(news_paths, function(path) {
+    news_url <- absolute_fcsp_url(path)
+    tryCatch(
+      extract_fcsp_news_game(news_url, typ, url),
+      error = function(e) {
+        safe_log(paste("[WARN] FCSP-News konnte nicht gelesen werden:", news_url, "|", e$message))
+        empty_spiele_tibble()
+      }
+    )
+  })) %>%
+    mutate(spiel_datum_check = suppressWarnings(dmy(datum))) %>%
+    filter(is.na(spiel_datum_check) | spiel_datum_check >= heute) %>%
+    select(-spiel_datum_check)
+}
+
+scrape_all_fcsp_fallbacks <- function(typ) {
+  bind_rows(lapply(fallback_urls, function(url) {
+    scrape_fcsp_fallback(url, typ)
+  })) %>%
+    distinct(spielbericht_link, .keep_all = TRUE)
 }
 
 # --------------------------------------------------
@@ -226,6 +407,16 @@ df_spiele <- bind_rows(
   scrape_spiele(urls["auswaerts"], "Auswärtsspiel")
 )
 
+if (nrow(df_spiele) == 0) {
+  safe_log("[INFO] Ticketshop liefert keine verwertbaren Daten. FCSP-Fallback wird genutzt.")
+  df_spiele <- bind_rows(
+    scrape_all_fcsp_fallbacks("Heimspiel"),
+    scrape_all_fcsp_fallbacks("Auswärtsspiel")
+  )
+} else {
+  safe_log(paste("[INFO] Ticketshop-Daten gefunden:", nrow(df_spiele)))
+}
+
 # --------------------------------------------------
 # Datum vorbereiten
 # --------------------------------------------------
@@ -234,7 +425,11 @@ df_spiele <- df_spiele %>%
   mutate(
     vvk_datum_parsed = safe_dmy(vvk_datum),
     vvk_start = as.POSIXct(
-      mapply(parse_shop_datetime, vvk_datum, vvk_uhrzeit),
+      vapply(
+        seq_along(vvk_datum),
+        function(i) as.numeric(parse_shop_datetime(vvk_datum[i], vvk_uhrzeit[i])),
+        numeric(1)
+      ),
       origin = "1970-01-01",
       tz = "Europe/Berlin"
     )
@@ -248,6 +443,25 @@ relevant <- df_spiele %>%
     !is.na(vvk_datum_parsed) &
       art %in% c("Heimspiel", "Auswärtsspiel")
   )
+
+versand_status <- tibble(
+  spiel_id = character(),
+  reminder_typ = character(),
+  status = character(),
+  grund = character()
+)
+
+log_versand_status <- function(spiel_id, reminder_typ, status, grund) {
+  versand_status <<- bind_rows(
+    versand_status,
+    tibble(
+      spiel_id = spiel_id,
+      reminder_typ = reminder_typ,
+      status = status,
+      grund = grund
+    )
+  )
+}
 
 baue_reminder_text <- function(spiel, reminder_typ) {
   zielgruppe <- ifelse(is.na(spiel$vvk_zielgruppe) || spiel$vvk_zielgruppe == "", "Mitglieder", spiel$vvk_zielgruppe)
@@ -294,6 +508,11 @@ for (i in seq_len(nrow(relevant))) {
     
     reminder_status <- rbind(reminder_status,
                              data.frame(spiel_id=spiel_id, reminder_typ="vor", gesendet_am=jetzt, stringsAsFactors=FALSE))
+    log_versand_status(spiel_id, "vor", "gesendet", "Vorverkauf ist morgen und Nachricht war noch nicht gesendet")
+  } else if (gesendet_vor) {
+    log_versand_status(spiel_id, "vor", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
+  } else {
+    log_versand_status(spiel_id, "vor", "nicht gesendet", "Vorverkauf ist nicht morgen")
   }
   
   # --------- Reminder "tag" ---------
@@ -314,6 +533,32 @@ for (i in seq_len(nrow(relevant))) {
     
     reminder_status <- rbind(reminder_status,
                              data.frame(spiel_id=spiel_id, reminder_typ="tag", gesendet_am=jetzt, stringsAsFactors=FALSE))
+    log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt im Versandfenster")
+  } else if (gesendet_tag) {
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
+  } else if (!is.na(spiel$vvk_datum_parsed) && spiel$vvk_datum_parsed == heute) {
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt ausserhalb des Versandfensters")
+  } else {
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Vorverkauf ist nicht heute")
+  }
+}
+
+safe_log("----- Versandbericht -----")
+if (nrow(relevant) == 0) {
+  if (nrow(df_spiele) == 0) {
+    safe_log("[VERSAND] Keine Nachricht gesendet: Es wurden keine Spiele mit Mitgliederverkaufsdaten gefunden.")
+  } else {
+    safe_log("[VERSAND] Keine Nachricht gesendet: Spiele gefunden, aber ohne gueltiges VVK-Datum.")
+  }
+} else {
+  for (i in seq_len(nrow(versand_status))) {
+    eintrag <- versand_status[i, ]
+    safe_log(paste0(
+      "[VERSAND] ", eintrag$status,
+      " | Typ: ", eintrag$reminder_typ,
+      " | Spiel: ", eintrag$spiel_id,
+      " | Grund: ", eintrag$grund
+    ))
   }
 }
 
