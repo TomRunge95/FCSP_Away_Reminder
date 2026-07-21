@@ -130,6 +130,25 @@ parse_shop_datetime <- function(date_text, time_text) {
   )
 }
 
+empty_spiele_tibble <- function() {
+  tibble(
+    spieltyp = character(),
+    datum = character(),
+    uhrzeit = character(),
+    stadion = character(),
+    heim = character(),
+    gast = character(),
+    ticket_link = character(),
+    spielbericht_link = character(),
+    ticket_status = character(),
+    vvk_info = character(),
+    vvk_datum = character(),
+    vvk_uhrzeit = character(),
+    vvk_zielgruppe = character(),
+    art = character()
+  )
+}
+
 extract_shop_games <- function(text, typ, ticket_link) {
   text <- clean_shop_text(text)
   text <- str_replace(text, "\\s*Hinweis:.*$", "")
@@ -139,7 +158,7 @@ extract_shop_games <- function(text, typ, ticket_link) {
     "(?:FCSP|FC St\\. Pauli|[^().!?]{1,80}?)\\s*\\([^()]+\\)"
   )
   headers <- str_locate_all(text, header_pattern)[[1]]
-  if (nrow(headers) == 0) return(tibble())
+  if (nrow(headers) == 0) return(empty_spiele_tibble())
   
   bind_rows(lapply(seq_len(nrow(headers)), function(i) {
     header <- str_sub(text, headers[i, "start"], headers[i, "end"]) %>% clean_shop_text()
@@ -197,6 +216,10 @@ scrape_spiele <- function(url, typ) {
   resp <- GET(
     url,
     user_agent("Mozilla/5.0 FCSP-Ticket-Reminder/1.0"),
+    add_headers(
+      Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      `Accept-Language` = "de-DE,de;q=0.9,en;q=0.8"
+    ),
     timeout(30)
   )
   stop_for_status(resp)
@@ -205,6 +228,7 @@ scrape_spiele <- function(url, typ) {
   info_nodes <- page %>%
     html_nodes(".copy-block.copy-block--full-width .hint, .copy-block .hint")
   if (length(info_nodes) == 0) info_nodes <- page %>% html_nodes("main#main")
+  if (length(info_nodes) == 0) info_nodes <- page %>% html_nodes("body")
   
   info_blocks <- info_nodes %>%
     html_text2() %>%
@@ -212,10 +236,17 @@ scrape_spiele <- function(url, typ) {
   
   if (info_blocks == "") {
     safe_log(paste("[WARN] Keine Ticketshop-Hinweisblöcke gefunden:", url))
-    return(tibble())
+    return(empty_spiele_tibble())
   }
   
-  extract_shop_games(info_blocks, typ, url)
+  spiele <- extract_shop_games(info_blocks, typ, url)
+  if (nrow(spiele) == 0) {
+    page_title <- page %>% html_node("title") %>% html_text2()
+    safe_log(paste("[WARN] Keine Mitgliederverkaufsdaten gefunden:", url, "| Titel:", page_title))
+    safe_log(paste("[WARN] HTML-Textauszug:", str_sub(clean_shop_text(info_blocks), 1, 300)))
+  }
+  
+  spiele
 }
 
 # --------------------------------------------------
@@ -234,7 +265,11 @@ df_spiele <- df_spiele %>%
   mutate(
     vvk_datum_parsed = safe_dmy(vvk_datum),
     vvk_start = as.POSIXct(
-      mapply(parse_shop_datetime, vvk_datum, vvk_uhrzeit),
+      vapply(
+        seq_along(vvk_datum),
+        function(i) as.numeric(parse_shop_datetime(vvk_datum[i], vvk_uhrzeit[i])),
+        numeric(1)
+      ),
       origin = "1970-01-01",
       tz = "Europe/Berlin"
     )
