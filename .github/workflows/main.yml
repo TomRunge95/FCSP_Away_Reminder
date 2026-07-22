@@ -5,6 +5,10 @@ on:
     - cron: '0 8-18 * * *'  # jede Stunde von 10 bis 16 Uhr
   workflow_dispatch:
 
+concurrency:
+  group: ticket-reminder-bot
+  cancel-in-progress: false
+
 jobs:
   run-r-script:
     runs-on: ubuntu-latest
@@ -38,7 +42,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: reminder_status.rds
-          key: reminder-status-v1
+          key: reminder-status-v2-${{ github.run_id }}
+          restore-keys: |
+            reminder-status-v2-
 
       - name: Run Ticket Reminder
         env:
@@ -46,4 +52,3 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
           Rscript Mett_Bot.R
-

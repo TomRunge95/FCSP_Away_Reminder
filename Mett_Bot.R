@@ -72,6 +72,14 @@ if (file.exists(status_file)) {
   )
 }
 
+reminder_status <- reminder_status %>%
+  mutate(
+    spiel_id = as.character(spiel_id),
+    reminder_typ = as.character(reminder_typ),
+    gesendet_am = as.POSIXct(gesendet_am, tz = "Europe/Berlin")
+  ) %>%
+  distinct(spiel_id, reminder_typ, .keep_all = TRUE)
+
 # --------------------------------------------------
 # URLs
 # --------------------------------------------------
@@ -119,6 +127,61 @@ parse_shop_date <- function(x, reference_date = heute) {
 
 format_shop_date <- function(x) {
   if (is.na(x)) NA_character_ else format(x, "%d.%m.%Y")
+}
+
+normalize_spiel_id_part <- function(x) {
+  x %>%
+    str_replace_all("FC St\\. Pauli", "FCSP") %>%
+    str_replace_all("FC St Pauli", "FCSP") %>%
+    str_replace_all("St\\. Pauli", "FCSP") %>%
+    str_replace_all("[^[:alnum:]ÄÖÜäöüß]+", " ") %>%
+    str_squish() %>%
+    str_to_lower()
+}
+
+build_spiel_id <- function(spiel) {
+  paste(
+    normalize_spiel_id_part(spiel$heim),
+    normalize_spiel_id_part(spiel$gast),
+    spiel$datum,
+    sep = "_"
+  )
+}
+
+normalize_existing_spiel_id <- function(spiel_id) {
+  if (length(spiel_id) == 0) return(character())
+  
+  parts <- str_split_fixed(spiel_id, "_", 3)
+  ifelse(
+    parts[, 3] == "",
+    normalize_spiel_id_part(spiel_id),
+    paste(
+      normalize_spiel_id_part(parts[, 1]),
+      normalize_spiel_id_part(parts[, 2]),
+      parts[, 3],
+      sep = "_"
+    )
+  )
+}
+
+reminder_status <- reminder_status %>%
+  mutate(spiel_id = normalize_existing_spiel_id(spiel_id)) %>%
+  distinct(spiel_id, reminder_typ, .keep_all = TRUE)
+
+mark_reminder_sent <- function(spiel_id, reminder_typ, sent_at) {
+  reminder_status <<- bind_rows(
+    reminder_status,
+    data.frame(
+      spiel_id = spiel_id,
+      reminder_typ = reminder_typ,
+      gesendet_am = sent_at,
+      stringsAsFactors = FALSE
+    )
+  ) %>%
+    distinct(spiel_id, reminder_typ, .keep_all = TRUE)
+  
+  saveRDS(reminder_status, status_file)
+  safe_log(paste("[STATUS] Versandstatus sofort gespeichert:", spiel_id, reminder_typ))
 }
 
 parse_shop_datetime <- function(date_text, time_text) {
@@ -442,7 +505,17 @@ relevant <- df_spiele %>%
   filter(
     !is.na(vvk_datum_parsed) &
       art %in% c("Heimspiel", "Auswärtsspiel")
-  )
+  ) %>%
+  mutate(
+    spiel_id = paste(
+      normalize_spiel_id_part(heim),
+      normalize_spiel_id_part(gast),
+      datum,
+      sep = "_"
+    )
+  ) %>%
+  arrange(vvk_start, datum, heim, gast) %>%
+  distinct(spiel_id, .keep_all = TRUE)
 
 versand_status <- tibble(
   spiel_id = character(),
@@ -490,7 +563,7 @@ for (i in seq_len(nrow(relevant))) {
   jetzt <- with_tz(Sys.time(), "Europe/Berlin")
   heute <- as.Date(jetzt)
   
-  spiel_id <- paste(spiel$heim, spiel$gast, spiel$datum, sep = "_")
+  spiel_id <- spiel$spiel_id
   
   safe_log(paste("Spiel:", spiel_id))
   safe_log(paste("VVK Datum:", spiel$vvk_datum_parsed, "heute:", heute))
@@ -506,9 +579,12 @@ for (i in seq_len(nrow(relevant))) {
     
     res <- telegram_send_message(text, "VOR")
     
-    reminder_status <- rbind(reminder_status,
-                             data.frame(spiel_id=spiel_id, reminder_typ="vor", gesendet_am=jetzt, stringsAsFactors=FALSE))
-    log_versand_status(spiel_id, "vor", "gesendet", "Vorverkauf ist morgen und Nachricht war noch nicht gesendet")
+    if (isTRUE(res$ok)) {
+      mark_reminder_sent(spiel_id, "vor", jetzt)
+      log_versand_status(spiel_id, "vor", "gesendet", "Vorverkauf ist morgen und Nachricht war noch nicht gesendet")
+    } else {
+      log_versand_status(spiel_id, "vor", "nicht gespeichert", "Telegram hat den Versand nicht bestaetigt")
+    }
   } else if (gesendet_vor) {
     log_versand_status(spiel_id, "vor", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
   } else {
@@ -531,9 +607,12 @@ for (i in seq_len(nrow(relevant))) {
     
     res <- telegram_send_message(text, "TAG")
     
-    reminder_status <- rbind(reminder_status,
-                             data.frame(spiel_id=spiel_id, reminder_typ="tag", gesendet_am=jetzt, stringsAsFactors=FALSE))
-    log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt im Versandfenster")
+    if (isTRUE(res$ok)) {
+      mark_reminder_sent(spiel_id, "tag", jetzt)
+      log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt im Versandfenster")
+    } else {
+      log_versand_status(spiel_id, "tag", "nicht gespeichert", "Telegram hat den Versand nicht bestaetigt")
+    }
   } else if (gesendet_tag) {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
   } else if (!is.na(spiel$vvk_datum_parsed) && spiel$vvk_datum_parsed == heute) {
