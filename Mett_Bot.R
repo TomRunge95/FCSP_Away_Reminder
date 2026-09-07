@@ -654,10 +654,12 @@ for (i in seq_len(nrow(relevant))) {
   
   # --------- Reminder "tag" ---------
   startzeit <- if (!is.na(spiel$vvk_start)) spiel$vvk_start else as.POSIXct(paste(heute, "15:00:00"), tz="Europe/Berlin")
+  versandfenster_start <- startzeit - minutes(30)
+  versandfenster_ende <- startzeit - minutes(15)
   bedingung_tag <- !is.na(spiel$vvk_datum_parsed) &&
     spiel$vvk_datum_parsed == heute &&
-    jetzt >= (startzeit - hours(5)) &&
-    jetzt <= (startzeit + hours(8))
+    jetzt >= versandfenster_start &&
+    jetzt <= versandfenster_ende
   
   gesendet_tag <- any(reminder_status$spiel_id == spiel_id & reminder_status$reminder_typ == "tag")
   safe_log(paste("[TAG] Bedingung erfüllt:", bedingung_tag, "Bereits gesendet:", gesendet_tag))
@@ -670,14 +672,14 @@ for (i in seq_len(nrow(relevant))) {
     
     if (isTRUE(res$ok)) {
       mark_reminder_sent(spiel_id, "tag", jetzt)
-      log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt im Versandfenster")
+      log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt 30 bis 15 Minuten vor VVK-Start")
     } else {
       log_versand_status(spiel_id, "tag", "nicht gespeichert", "Telegram hat den Versand nicht bestaetigt")
     }
   } else if (gesendet_tag) {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
   } else if (!is.na(spiel$vvk_datum_parsed) && spiel$vvk_datum_parsed == heute) {
-    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt ausserhalb des Versandfensters")
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt nicht 30 bis 15 Minuten vor VVK-Start")
   } else {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Vorverkauf ist nicht heute")
   }

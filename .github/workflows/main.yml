@@ -2,7 +2,7 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '0 8-18 * * *'  # jede Stunde von 10 bis 16 Uhr
+    - cron: '*/5 7-18 * * *'  # alle 5 Minuten tagsueber; Versandfenster prueft das R-Skript in Europe/Berlin
   workflow_dispatch:
 
 concurrency:
