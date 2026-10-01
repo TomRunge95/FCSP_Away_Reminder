@@ -7,7 +7,21 @@ library(httr)
 # --------------------------------------------------
 # Zeitzone setzen
 # --------------------------------------------------
-jetzt <- with_tz(Sys.time(), "Europe/Berlin")
+current_time <- function() {
+  now_override <- Sys.getenv("BOT_NOW")
+  if (nchar(now_override) > 0) {
+    parsed_now <- suppressWarnings(ymd_hms(now_override, tz = "Europe/Berlin"))
+    if (is.na(parsed_now)) {
+      parsed_now <- suppressWarnings(ymd_hm(now_override, tz = "Europe/Berlin"))
+    }
+    if (is.na(parsed_now)) stop("[FEHLER] BOT_NOW konnte nicht geparst werden!")
+    return(parsed_now)
+  }
+  
+  with_tz(Sys.time(), "Europe/Berlin")
+}
+
+jetzt <- current_time()
 heute <- as.Date(jetzt)
 
 # --------------------------------------------------
@@ -20,14 +34,20 @@ safe_log <- function(msg) {
 # --------------------------------------------------
 # Telegram Config
 # --------------------------------------------------
+dry_run <- tolower(Sys.getenv("DRY_RUN")) %in% c("1", "true", "ja", "yes")
 bot_token <- Sys.getenv("BOT_TOKEN")
 chat_id <- Sys.getenv("CHAT_ID")
 
-if (nchar(bot_token) == 0 || nchar(chat_id) == 0) {
+if (!dry_run && (nchar(bot_token) == 0 || nchar(chat_id) == 0)) {
   stop("[FEHLER] BOT_TOKEN oder CHAT_ID nicht gesetzt!")
 }
 
 telegram_send_message <- function(text, log_prefix = "TELEGRAM") {
+  if (dry_run) {
+    safe_log(paste0("[", log_prefix, "] DRY_RUN aktiv: Nachricht wuerde gesendet werden: ", text))
+    return(list(ok = FALSE, dry_run = TRUE))
+  }
+  
   resp <- POST(
     paste0("https://api.telegram.org/bot", bot_token, "/sendMessage"),
     body = list(chat_id = chat_id, text = text),
@@ -621,7 +641,7 @@ baue_reminder_text <- function(spiel, reminder_typ) {
 # --------------------------------------------------
 for (i in seq_len(nrow(relevant))) {
   spiel <- relevant[i, ]
-  jetzt <- with_tz(Sys.time(), "Europe/Berlin")
+  jetzt <- current_time()
   heute <- as.Date(jetzt)
   
   spiel_id <- spiel$spiel_id
@@ -655,11 +675,11 @@ for (i in seq_len(nrow(relevant))) {
   # --------- Reminder "tag" ---------
   startzeit <- if (!is.na(spiel$vvk_start)) spiel$vvk_start else as.POSIXct(paste(heute, "15:00:00"), tz="Europe/Berlin")
   versandfenster_start <- startzeit - minutes(30)
-  versandfenster_ende <- startzeit - minutes(15)
+  versandfenster_ende <- startzeit
   bedingung_tag <- !is.na(spiel$vvk_datum_parsed) &&
     spiel$vvk_datum_parsed == heute &&
     jetzt >= versandfenster_start &&
-    jetzt <= versandfenster_ende
+    jetzt < versandfenster_ende
   
   gesendet_tag <- any(reminder_status$spiel_id == spiel_id & reminder_status$reminder_typ == "tag")
   safe_log(paste("[TAG] Bedingung erfüllt:", bedingung_tag, "Bereits gesendet:", gesendet_tag))
@@ -672,14 +692,14 @@ for (i in seq_len(nrow(relevant))) {
     
     if (isTRUE(res$ok)) {
       mark_reminder_sent(spiel_id, "tag", jetzt)
-      log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt 30 bis 15 Minuten vor VVK-Start")
+      log_versand_status(spiel_id, "tag", "gesendet", "Vorverkauf ist heute und aktueller Zeitpunkt liegt im Versandfenster ab 30 Minuten vor VVK-Start")
     } else {
       log_versand_status(spiel_id, "tag", "nicht gespeichert", "Telegram hat den Versand nicht bestaetigt")
     }
   } else if (gesendet_tag) {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
   } else if (!is.na(spiel$vvk_datum_parsed) && spiel$vvk_datum_parsed == heute) {
-    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt nicht 30 bis 15 Minuten vor VVK-Start")
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt nicht im Versandfenster 30 Minuten vor VVK-Start bis Verkaufsstart")
   } else {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Vorverkauf ist nicht heute")
   }

@@ -2,16 +2,20 @@ name: Ticket Reminder Bot
 
 on:
   schedule:
-    - cron: '*/5 7-18 * * *'  # alle 5 Minuten tagsueber; Versandfenster prueft das R-Skript in Europe/Berlin
+    - cron: '17 6,12 * * *'  # zwei lange Tagesbloecke; das Skript pollt darin alle 5 Minuten
   workflow_dispatch:
 
 concurrency:
   group: ticket-reminder-bot
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   run-r-script:
     runs-on: ubuntu-latest
+    timeout-minutes: 390
 
     steps:
       - name: Checkout repository
@@ -38,17 +42,51 @@ jobs:
             r-cran-rvest \
             r-cran-stringr
 
-      - name: Restore reminder status cache
-        uses: actions/cache@v4
-        with:
-          path: reminder_status.rds
-          key: reminder-status-v2-${{ github.run_id }}
-          restore-keys: |
-            reminder-status-v2-
-
       - name: Run Ticket Reminder
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
-          Rscript Mett_Bot.R
+          set -euo pipefail
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          run_bot_and_persist_status() {
+            Rscript Mett_Bot.R
+            git add reminder_status.rds
+            if git diff --cached --quiet; then
+              return 0
+            fi
+            
+            git commit -m "Update reminder status"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          }
+          
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            run_bot_and_persist_status
+            exit 0
+          fi
+          
+          now_epoch=$(date -u +%s)
+          midday_epoch=$(date -u -d '12:00:00' +%s)
+          if [ "$now_epoch" -lt "$midday_epoch" ]; then
+            deadline_epoch=$(date -u -d '13:05:00' +%s)
+          else
+            deadline_epoch=$(date -u -d '19:05:00' +%s)
+          fi
+          
+          while true; do
+            run_bot_and_persist_status
+            now_epoch=$(date -u +%s)
+            if [ "$now_epoch" -ge "$deadline_epoch" ]; then
+              break
+            fi
+            
+            sleep_seconds=$((300 - (now_epoch % 300)))
+            if [ "$sleep_seconds" -lt 30 ]; then
+              sleep_seconds=$((sleep_seconds + 300))
+            fi
+            sleep "$sleep_seconds"
+          done
