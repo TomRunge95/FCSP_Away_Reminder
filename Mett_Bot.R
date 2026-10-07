@@ -469,8 +469,18 @@ scrape_spiele <- function(url, typ) {
     safe_log(paste("[WARN] Keine Ticketshop-Hinweisblöcke gefunden:", url))
     return(empty_spiele_tibble())
   }
-  
+
   extract_shop_games(info_blocks, typ, url)
+}
+
+safe_scrape <- function(label, expr) {
+  tryCatch(
+    expr,
+    error = function(e) {
+      safe_log(paste("[WARN]", label, "konnte nicht gelesen werden:", e$message))
+      empty_spiele_tibble()
+    }
+  )
 }
 
 scrape_fcsp_fallback <- function(url, typ) {
@@ -514,7 +524,10 @@ scrape_fcsp_fallback <- function(url, typ) {
 
 scrape_all_fcsp_fallbacks <- function(typ) {
   bind_rows(lapply(fallback_urls, function(url) {
-    scrape_fcsp_fallback(url, typ)
+    safe_scrape(
+      paste("FCSP-Fallback", typ, url),
+      scrape_fcsp_fallback(url, typ)
+    )
   })) %>%
     distinct(spielbericht_link, .keep_all = TRUE)
 }
@@ -523,8 +536,8 @@ scrape_all_fcsp_fallbacks <- function(typ) {
 # Spiele abrufen
 # --------------------------------------------------
 df_ticketshop <- bind_rows(
-  scrape_spiele(urls["heim"], "Heimspiel"),
-  scrape_spiele(urls["auswaerts"], "Auswärtsspiel")
+  safe_scrape("Ticketshop Heimspiel", scrape_spiele(urls["heim"], "Heimspiel")),
+  safe_scrape("Ticketshop Auswärtsspiel", scrape_spiele(urls["auswaerts"], "Auswärtsspiel"))
 )
 
 if (nrow(df_ticketshop) == 0) {
@@ -675,11 +688,11 @@ for (i in seq_len(nrow(relevant))) {
   # --------- Reminder "tag" ---------
   startzeit <- if (!is.na(spiel$vvk_start)) spiel$vvk_start else as.POSIXct(paste(heute, "15:00:00"), tz="Europe/Berlin")
   versandfenster_start <- startzeit - minutes(30)
-  versandfenster_ende <- startzeit
+  versandfenster_ende <- as.POSIXct(paste(heute, "23:59:59"), tz = "Europe/Berlin")
   bedingung_tag <- !is.na(spiel$vvk_datum_parsed) &&
     spiel$vvk_datum_parsed == heute &&
     jetzt >= versandfenster_start &&
-    jetzt < versandfenster_ende
+    jetzt <= versandfenster_ende
   
   gesendet_tag <- any(reminder_status$spiel_id == spiel_id & reminder_status$reminder_typ == "tag")
   safe_log(paste("[TAG] Bedingung erfüllt:", bedingung_tag, "Bereits gesendet:", gesendet_tag))
@@ -699,7 +712,7 @@ for (i in seq_len(nrow(relevant))) {
   } else if (gesendet_tag) {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Nachricht wurde bereits frueher gesendet")
   } else if (!is.na(spiel$vvk_datum_parsed) && spiel$vvk_datum_parsed == heute) {
-    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt nicht im Versandfenster 30 Minuten vor VVK-Start bis Verkaufsstart")
+    log_versand_status(spiel_id, "tag", "nicht gesendet", "Heute ist Vorverkauf, aber aktueller Zeitpunkt liegt noch vor dem Versandfenster ab 30 Minuten vor VVK-Start")
   } else {
     log_versand_status(spiel_id, "tag", "nicht gesendet", "Vorverkauf ist nicht heute")
   }
@@ -727,5 +740,9 @@ if (nrow(relevant) == 0) {
 # --------------------------------------------------
 # Status speichern
 # --------------------------------------------------
-saveRDS(reminder_status, status_file)
-safe_log("Reminder-Status gespeichert ✅")
+if (dry_run) {
+  safe_log("DRY_RUN aktiv: Reminder-Status nicht gespeichert ✅")
+} else {
+  saveRDS(reminder_status, status_file)
+  safe_log("Reminder-Status gespeichert ✅")
+}

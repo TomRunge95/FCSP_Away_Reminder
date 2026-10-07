@@ -1,6 +1,6 @@
 # FC St. Pauli Ticket Reminder Bot
 
-Ein R-basiertes Telegram-Bot-Skript, das automatisch **Reminder für Auswärts- und Heimspiele** von FC St. Pauli verschickt. Der Bot erinnert Mitglieder einer Telegram-Gruppe **1 Tag vor VVK-Beginn** und am **VVK-Tag ab 30 Minuten vor VVK-Start bis unmittelbar vor Verkaufsstart**, wenn VVK-Datum und Uhrzeit verfügbar sind. Pro Spiel und Reminder-Typ wird höchstens eine Nachricht verschickt. Für Heimspiele nutzt der Bot einen eigenen Text für alle ohne Dauerkarte.
+Ein R-basiertes Telegram-Bot-Skript, das automatisch **Reminder für Auswärts- und Heimspiele** von FC St. Pauli verschickt. Der Bot erinnert Mitglieder einer Telegram-Gruppe **1 Tag vor VVK-Beginn** und am **VVK-Tag ab 30 Minuten vor VVK-Start bis zum Tagesende**, wenn VVK-Datum und Uhrzeit verfügbar sind. Pro Spiel und Reminder-Typ wird höchstens eine Nachricht verschickt. Für Heimspiele nutzt der Bot einen eigenen Text für alle ohne Dauerkarte.
 
 ---
 
@@ -10,7 +10,7 @@ Ein R-basiertes Telegram-Bot-Skript, das automatisch **Reminder für Auswärts- 
 - Filtert automatisch Auswärts- und Heimspiele mit verfügbarem VVK-Datum.  
 - Automatische Versandzeit:
   - 1 Tag vorher
-  - Am VVK-Tag ab 30 Minuten vor VVK-Start bis unmittelbar vor Verkaufsstart
+  - Am VVK-Tag ab 30 Minuten vor VVK-Start bis zum Tagesende, falls der genaue Startzeitpunkt verpasst wurde
 - Flexibel: kann in **Cronjobs oder Task Scheduler** täglich ausgeführt werden.
 
 ---
