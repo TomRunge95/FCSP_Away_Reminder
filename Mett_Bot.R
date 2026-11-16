@@ -262,7 +262,7 @@ opponent_from_news <- function(title, uri, typ) {
     return(str_squish(opponent))
   }
   
-  bei_opponent <- str_match(title, regex("\\bbei\\s+(.+)$", ignore_case = TRUE))[, 2]
+  bei_opponent <- str_match(title, regex("\\bbei(?:m)?\\s+(.+)$", ignore_case = TRUE))[, 2]
   if (!is.na(bei_opponent) && bei_opponent != "") return(str_squish(bei_opponent))
   
   slug <- uri %>%
@@ -279,7 +279,7 @@ opponent_from_news <- function(title, uri, typ) {
 }
 
 infer_game_type <- function(title, uri, fallback_typ) {
-  if (str_detect(title, regex("\\bbei\\b|Auswärtsspiel|Auswaertsspiel", ignore_case = TRUE))) {
+  if (str_detect(title, regex("\\bbei(?:m)?\\b|Auswärtsspiel|Auswaertsspiel", ignore_case = TRUE))) {
     return("Auswärtsspiel")
   }
   if (str_detect(title, regex("Heimspiel|\\bgegen\\b", ignore_case = TRUE))) {
